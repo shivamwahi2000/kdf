@@ -25,6 +25,19 @@ class S3Config(BaseModel):
     recursive: bool = False
     path_glob_filter: Optional[str] = None
 
+    # Autoloader configuration (cloudFiles)
+    use_autoloader: bool = True  # Use Autoloader by default for incremental/streaming
+    schema_location: Optional[str] = None  # Required for Autoloader, auto-generated if None
+    schema_evolution_mode: str = "addNewColumns"  # rescue, failOnNewColumns, addNewColumns
+    infer_column_types: bool = True
+    max_files_per_trigger: Optional[int] = None
+    max_bytes_per_trigger: Optional[str] = None
+    include_existing_files: bool = True
+    use_notifications: bool = False  # Use cloud notifications for near-instant processing
+
+    # Rescue data (for malformed records)
+    rescue_data_column: Optional[str] = "_rescued_data"
+
     # Advanced
     options: dict = Field(default_factory=dict)
 
@@ -56,7 +69,7 @@ class S3Config(BaseModel):
         return self.region or os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION"))
 
     def get_format_options(self) -> dict:
-        """Get format-specific options."""
+        """Get format-specific options for standard batch read."""
         options = dict(self.options)
 
         if self.format == "csv":
@@ -72,5 +85,55 @@ class S3Config(BaseModel):
 
         if self.recursive:
             options["recursiveFileLookup"] = "true"
+
+        return options
+
+    def get_autoloader_options(self, checkpoint_base: str = "/tmp/kdf/checkpoints") -> dict:
+        """Get Autoloader (cloudFiles) specific options."""
+        # Normalize format (jsonl -> json)
+        format_name = "json" if self.format == "jsonl" else self.format
+
+        options = dict(self.options)
+        options["cloudFiles.format"] = format_name
+
+        # Schema location (required for Autoloader)
+        if self.schema_location:
+            options["cloudFiles.schemaLocation"] = self.schema_location
+        else:
+            # Auto-generate from path
+            import hashlib
+            path_hash = hashlib.md5(self.path.encode()).hexdigest()[:8]
+            options["cloudFiles.schemaLocation"] = f"{checkpoint_base}/schema/{path_hash}"
+
+        # Schema evolution
+        options["cloudFiles.schemaEvolutionMode"] = self.schema_evolution_mode
+        options["cloudFiles.inferColumnTypes"] = str(self.infer_column_types).lower()
+
+        # Performance tuning
+        if self.max_files_per_trigger:
+            options["cloudFiles.maxFilesPerTrigger"] = str(self.max_files_per_trigger)
+        if self.max_bytes_per_trigger:
+            options["cloudFiles.maxBytesPerTrigger"] = self.max_bytes_per_trigger
+
+        # Include existing files on first run
+        options["cloudFiles.includeExistingFiles"] = str(self.include_existing_files).lower()
+
+        # Use cloud notifications for near-instant processing
+        if self.use_notifications:
+            options["cloudFiles.useNotifications"] = "true"
+
+        # Rescue data column for malformed records
+        if self.rescue_data_column:
+            options["rescuedDataColumn"] = self.rescue_data_column
+
+        # Path filtering
+        if self.path_glob_filter:
+            options["cloudFiles.pathGlobFilter"] = self.path_glob_filter
+
+        # Format-specific options for Autoloader
+        if self.format == "csv":
+            options["header"] = str(self.header).lower()
+        elif self.format in ["json", "jsonl"]:
+            options["multiLine"] = str(self.multiline).lower()
 
         return options

@@ -1,0 +1,22 @@
+# Standard batch processing cluster configuration
+# Used for Bronze → Silver → Gold batch pipelines
+
+resources:
+  job_clusters:
+    kdf_batch_cluster:
+      new_cluster:
+        spark_version: "13.3.x-scala2.12"
+        node_type_id: "i3.xlarge"
+        num_workers: 4
+        spark_conf:
+          spark.databricks.delta.preview.enabled: "true"
+          spark.databricks.delta.optimizeWrite.enabled: "true"
+          spark.databricks.delta.autoCompact.enabled: "true"
+          spark.sql.adaptive.enabled: "true"
+          spark.sql.adaptive.coalescePartitions.enabled: "true"
+        custom_tags:
+          framework: kdf
+          cluster_type: batch
+          environment: ${var.environment}
+        data_security_mode: USER_ISOLATION
+        runtime_engine: PHOTON

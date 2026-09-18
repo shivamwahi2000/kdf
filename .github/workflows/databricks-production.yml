@@ -1,0 +1,175 @@
+name: Deploy to Databricks Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      confirm_deployment:
+        description: 'Type "deploy" to confirm production deployment'
+        required: true
+        default: ''
+
+env:
+  DATABRICKS_HOST_PROD: ${{ secrets.DATABRICKS_HOST_PROD }}
+  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN_PROD }}
+  NOTIFICATION_EMAIL_PROD: ${{ secrets.NOTIFICATION_EMAIL_PROD }}
+  SERVICE_PRINCIPAL_NAME: ${{ secrets.SERVICE_PRINCIPAL_NAME }}
+
+jobs:
+  validate:
+    name: Validate Production Bundle
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+
+      - name: Run unit tests
+        run: |
+          pytest tests/ -v
+
+      - name: Install Databricks CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+
+      - name: Validate bundle
+        run: |
+          databricks bundle validate -t production
+
+  deploy-staging:
+    name: Deploy to Staging (Pre-production)
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: staging
+
+    env:
+      DATABRICKS_HOST_STAGING: ${{ secrets.DATABRICKS_HOST_STAGING }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN_STAGING }}
+      NOTIFICATION_EMAIL_STAGING: ${{ secrets.NOTIFICATION_EMAIL_STAGING }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Install Databricks CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+
+      - name: Deploy to staging
+        run: |
+          databricks bundle deploy -t staging
+
+      - name: Run smoke tests on staging
+        run: |
+          echo "Running smoke tests on staging..."
+          # Add staging smoke tests here
+          # databricks bundle run -t staging smoke_test_pipeline
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment: production
+    if: |
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.confirm_deployment == 'deploy') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Install Databricks CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+
+      - name: Deploy to production
+        run: |
+          databricks bundle deploy -t production
+
+      - name: Create deployment tag
+        run: |
+          git tag -a "prod-$(date +%Y%m%d-%H%M%S)" -m "Production deployment"
+          git push origin --tags
+
+      - name: Notify deployment
+        run: |
+          echo "🚀 Successfully deployed to Production"
+          echo "Workspace: ${DATABRICKS_HOST_PROD}"
+          echo "Bundle path: /.bundle/kdf/production"
+
+      - name: Post-deployment verification
+        run: |
+          echo "Running post-deployment checks..."
+          # Add production verification checks
+          # Example: Check if jobs are created and accessible
+          databricks jobs list --output json | jq '.jobs[] | select(.settings.name | contains("KDF production"))'
+
+  rollback:
+    name: Rollback Production (if needed)
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: failure()
+    environment: production-rollback
+
+    steps:
+      - name: Checkout previous version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.before }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Install Databricks CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+
+      - name: Rollback deployment
+        run: |
+          echo "⚠️ Rolling back to previous version..."
+          databricks bundle deploy -t production
+
+      - name: Notify rollback
+        run: |
+          echo "⚠️ Production deployment rolled back due to failure"
+          echo "Previous commit: ${{ github.event.before }}"

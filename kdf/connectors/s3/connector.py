@@ -67,16 +67,38 @@ class S3Connector(Connector):
             raise SchemaError(f"Schema discovery failed: {e}") from e
 
     def read(self, context: ExecutionContext) -> DataFrame:
-        """Read data from S3."""
+        """Read data from S3 using batch mode."""
         # Configure credentials if provided
         access_key, secret_key = self.s3_config.get_credentials()
         if access_key and secret_key:
             S3Auth.configure_spark(context.spark, access_key, secret_key)
 
-        return self._create_reader(context)
+        return self._create_batch_reader(context)
 
-    def _create_reader(self, context: ExecutionContext) -> DataFrame:
-        """Create Spark reader for S3."""
+    def read_stream(self, context: ExecutionContext) -> DataFrame:
+        """
+        Read data from S3 using streaming mode with Autoloader.
+
+        Autoloader (cloudFiles) provides:
+        - Incremental file discovery (only new files)
+        - Automatic schema inference and evolution
+        - Efficient cloud file listing
+        - Rescue data column for malformed records
+        - Built-in checkpointing
+        """
+        # Configure credentials if provided
+        access_key, secret_key = self.s3_config.get_credentials()
+        if access_key and secret_key:
+            S3Auth.configure_spark(context.spark, access_key, secret_key)
+
+        # Use Autoloader if enabled, otherwise fall back to standard streaming
+        if self.s3_config.use_autoloader:
+            return self._create_autoloader_reader(context)
+        else:
+            return self._create_streaming_reader(context)
+
+    def _create_batch_reader(self, context: ExecutionContext) -> DataFrame:
+        """Create Spark batch reader for S3."""
         # Normalize format (jsonl -> json)
         format_name = "json" if self.s3_config.format == "jsonl" else self.s3_config.format
 
@@ -86,6 +108,55 @@ class S3Connector(Connector):
         options = self.s3_config.get_format_options()
         for key, value in options.items():
             reader = reader.option(key, value)
+
+        return reader.load(self.s3_config.path)
+
+    def _create_autoloader_reader(self, context: ExecutionContext) -> DataFrame:
+        """
+        Create Autoloader (cloudFiles) reader for S3.
+
+        This is the modern, recommended way to ingest from cloud storage:
+        - Only processes new files (incremental by design)
+        - Automatic schema inference and evolution
+        - Efficient file discovery using cloud APIs
+        - Rescue column for malformed data
+        - Near-instant processing with notifications
+        """
+        reader = context.spark.readStream.format("cloudFiles")
+
+        # Get Autoloader-specific options
+        checkpoint_base = context.config.checkpoint_location or "/tmp/kdf/checkpoints"
+        options = self.s3_config.get_autoloader_options(checkpoint_base)
+
+        for key, value in options.items():
+            reader = reader.option(key, value)
+
+        context.logger.info(
+            f"Using Autoloader for S3 ingestion: {self.s3_config.path}"
+        )
+        context.logger.info(
+            f"Schema location: {options.get('cloudFiles.schemaLocation')}"
+        )
+        context.logger.info(
+            f"Schema evolution mode: {self.s3_config.schema_evolution_mode}"
+        )
+
+        return reader.load(self.s3_config.path)
+
+    def _create_streaming_reader(self, context: ExecutionContext) -> DataFrame:
+        """Create standard streaming reader (fallback when Autoloader is disabled)."""
+        format_name = "json" if self.s3_config.format == "jsonl" else self.s3_config.format
+
+        reader = context.spark.readStream.format(format_name)
+
+        # Apply format-specific options
+        options = self.s3_config.get_format_options()
+        for key, value in options.items():
+            reader = reader.option(key, value)
+
+        context.logger.info(
+            "Using standard streaming mode (Autoloader disabled)"
+        )
 
         return reader.load(self.s3_config.path)
 

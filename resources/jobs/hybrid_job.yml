@@ -1,0 +1,150 @@
+# Hybrid Batch + Streaming Job
+# Combines batch historical data with real-time streaming
+
+resources:
+  jobs:
+    kdf_hybrid_clickstream:
+      name: "KDF ${var.environment} - Hybrid Batch+Streaming"
+
+      tasks:
+        # Bronze Batch Path
+        - task_key: bronze_orders_batch
+          description: "BRONZE BATCH: Historical orders from PostgreSQL"
+
+          notebook_task:
+            notebook_path: /kdf/notebooks/run_kdf_pipeline
+            base_parameters:
+              config_path: "${var.config_path}/hybrid_clickstream.yaml"
+              metadata_path: "${var.metadata_path}"
+              config_type: "medallion"
+              pipeline_name: "bronze_orders_batch"
+            source: WORKSPACE
+
+          job_cluster_key: kdf_batch_cluster
+
+          timeout_seconds: 3600
+          max_retries: 2
+
+          libraries:
+            - whl: ${workspace.file_path}/artifacts/kdf_wheel/*.whl
+
+        # Bronze Streaming Path (Kafka with S3 Autoloader)
+        - task_key: bronze_clickstream_streaming
+          description: "BRONZE STREAMING: Real-time clickstream from Kafka + S3 Autoloader"
+
+          notebook_task:
+            notebook_path: /kdf/notebooks/run_kdf_pipeline
+            base_parameters:
+              config_path: "${var.config_path}/hybrid_clickstream.yaml"
+              metadata_path: "${var.metadata_path}"
+              config_type: "medallion"
+              pipeline_name: "bronze_clickstream_streaming"
+              checkpoint_location: "${var.checkpoint_path}/bronze_streaming"
+            source: WORKSPACE
+
+          job_cluster_key: kdf_streaming_cluster
+
+          # Streaming tasks: no timeout, no retries
+          timeout_seconds: 0
+          max_retries: 0
+
+          libraries:
+            - whl: ${workspace.file_path}/artifacts/kdf_wheel/*.whl
+
+        # Silver Batch Path
+        - task_key: silver_orders
+          description: "SILVER BATCH: Clean batch orders"
+
+          depends_on:
+            - task_key: bronze_orders_batch
+
+          notebook_task:
+            notebook_path: /kdf/notebooks/run_kdf_pipeline
+            base_parameters:
+              config_path: "${var.config_path}/hybrid_clickstream.yaml"
+              metadata_path: "${var.metadata_path}"
+              config_type: "medallion"
+              pipeline_name: "silver_orders"
+            source: WORKSPACE
+
+          job_cluster_key: kdf_batch_cluster
+
+          timeout_seconds: 3600
+          max_retries: 2
+
+          libraries:
+            - whl: ${workspace.file_path}/artifacts/kdf_wheel/*.whl
+
+        # Silver Streaming Path
+        - task_key: silver_clickstream
+          description: "SILVER STREAMING: Process streaming clickstream"
+
+          depends_on:
+            - task_key: bronze_clickstream_streaming
+
+          notebook_task:
+            notebook_path: /kdf/notebooks/run_kdf_pipeline
+            base_parameters:
+              config_path: "${var.config_path}/hybrid_clickstream.yaml"
+              metadata_path: "${var.metadata_path}"
+              config_type: "medallion"
+              pipeline_name: "silver_clickstream"
+              checkpoint_location: "${var.checkpoint_path}/silver_streaming"
+            source: WORKSPACE
+
+          job_cluster_key: kdf_streaming_cluster
+
+          timeout_seconds: 0
+          max_retries: 0
+
+          libraries:
+            - whl: ${workspace.file_path}/artifacts/kdf_wheel/*.whl
+
+        # Gold Layer - Combined Analytics
+        - task_key: gold_user_activity
+          description: "GOLD: Combined analytics from batch and streaming"
+
+          depends_on:
+            - task_key: silver_orders
+            - task_key: silver_clickstream
+
+          notebook_task:
+            notebook_path: /kdf/notebooks/run_kdf_pipeline
+            base_parameters:
+              config_path: "${var.config_path}/hybrid_clickstream.yaml"
+              metadata_path: "${var.metadata_path}"
+              config_type: "medallion"
+              pipeline_name: "gold_user_activity"
+            source: WORKSPACE
+
+          job_cluster_key: kdf_batch_cluster
+
+          timeout_seconds: 3600
+          max_retries: 2
+
+          libraries:
+            - whl: ${workspace.file_path}/artifacts/kdf_wheel/*.whl
+
+      # Schedule (hourly for batch components)
+      schedule:
+        quartz_cron_expression: "0 0 * * * ?"
+        timezone_id: "UTC"
+        pause_status: UNPAUSED
+
+      # Notifications
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+        on_streaming_backlog_exceeded:
+          - ${var.notification_email}
+
+      # Job settings
+      max_concurrent_runs: 1
+      timeout_seconds: 14400
+
+      tags:
+        framework: kdf
+        environment: ${var.environment}
+        pipeline_type: hybrid
+        architecture: batch_streaming
+        s3_autoloader: enabled

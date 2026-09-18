@@ -1,0 +1,76 @@
+name: Deploy to Databricks Dev
+
+on:
+  push:
+    branches:
+      - develop
+      - feature/**
+  pull_request:
+    branches:
+      - develop
+
+env:
+  DATABRICKS_HOST_DEV: ${{ secrets.DATABRICKS_HOST_DEV }}
+  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN_DEV }}
+  NOTIFICATION_EMAIL_DEV: ${{ secrets.NOTIFICATION_EMAIL_DEV }}
+
+jobs:
+  validate:
+    name: Validate Bundle
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Databricks CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+
+      - name: Validate bundle
+        run: |
+          databricks bundle validate -t dev
+
+  deploy:
+    name: Deploy to Dev
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Install Databricks CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+
+      - name: Deploy bundle
+        run: |
+          databricks bundle deploy -t dev
+
+      - name: Run integration tests (if applicable)
+        run: |
+          # Add your integration tests here
+          echo "Running integration tests..."
+          # databricks bundle run -t dev test_pipeline
+
+      - name: Summary
+        run: |
+          echo "✅ Deployed to Databricks Dev environment"
+          echo "View workflows: https://${DATABRICKS_HOST_DEV}/#workspace/.bundle/kdf/dev"

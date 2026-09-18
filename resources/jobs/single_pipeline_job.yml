@@ -1,0 +1,48 @@
+# Single Pipeline Job
+# Template for running a single KDF pipeline
+
+resources:
+  jobs:
+    kdf_single_pipeline:
+      name: "KDF ${var.environment} - Single Pipeline"
+
+      tasks:
+        - task_key: run_pipeline
+          description: "Run single KDF pipeline"
+
+          notebook_task:
+            notebook_path: /kdf/notebooks/run_kdf_pipeline
+            base_parameters:
+              config_path: "${var.config_path}/my_pipeline.yaml"
+              metadata_path: "${var.metadata_path}"
+              config_type: "single"
+            source: WORKSPACE
+
+          job_cluster_key: kdf_batch_cluster
+
+          timeout_seconds: 3600
+          max_retries: 2
+          retry_on_timeout: true
+
+          libraries:
+            - whl: ${workspace.file_path}/artifacts/kdf_wheel/*.whl
+
+      # Schedule (customize per environment)
+      schedule:
+        quartz_cron_expression: "0 0 2 * * ?"
+        timezone_id: "UTC"
+        pause_status: UNPAUSED
+
+      # Notifications
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+
+      # Job settings
+      max_concurrent_runs: 1
+      timeout_seconds: 7200
+
+      tags:
+        framework: kdf
+        environment: ${var.environment}
+        pipeline_type: single

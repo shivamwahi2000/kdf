@@ -1,0 +1,75 @@
+# Databricks Asset Bundle Configuration
+# This is the main configuration file for deploying KDF pipelines to Databricks.
+# Deploy with: databricks bundle deploy -t <environment>
+
+bundle:
+  name: kdf
+
+workspace:
+  # Workspace root path where bundle resources will be deployed
+  root_path: "/Workspace/.bundle/${bundle.name}/${bundle.target}"
+
+artifacts:
+  kdf_wheel:
+    type: whl
+    build: pip wheel . --wheel-dir dist --no-deps
+    path: ./dist/*.whl
+
+variables:
+  # Common variables used across all environments
+  metadata_path:
+    description: Path for KDF metadata storage
+    default: /kdf/metadata
+
+resources:
+  # Notebooks
+  notebooks:
+    kdf_runner:
+      source_path: ./kdf/databricks/notebooks/run_kdf_pipeline.py
+      path: /kdf/notebooks/run_kdf_pipeline
+
+  # Jobs are defined in resources/jobs/*.yml
+  # They will be automatically included
+
+include:
+  - resources/**/*.yml
+
+targets:
+  # Development environment
+  dev:
+    mode: development
+    workspace:
+      host: ${var.databricks_host_dev}
+    variables:
+      environment: dev
+      config_path: /kdf/configs/dev
+      checkpoint_path: /kdf/checkpoints/dev
+
+  # Staging environment
+  staging:
+    mode: development
+    workspace:
+      host: ${var.databricks_host_staging}
+    variables:
+      environment: staging
+      config_path: /kdf/configs/staging
+      checkpoint_path: /kdf/checkpoints/staging
+
+  # Production environment
+  production:
+    mode: production
+    workspace:
+      host: ${var.databricks_host_prod}
+    variables:
+      environment: production
+      config_path: /kdf/configs/production
+      checkpoint_path: /kdf/checkpoints/production
+
+    # Production-specific settings
+    run_as:
+      service_principal_name: ${var.service_principal_name}
+
+    # Git integration for production
+    git:
+      branch: main
+      origin_url: https://github.com/shivamwahi2000/kdf.git

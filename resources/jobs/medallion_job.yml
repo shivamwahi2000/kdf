@@ -1,0 +1,99 @@
+# Medallion Architecture Job
+# Bronze → Silver → Gold pipeline with dependencies
+
+resources:
+  jobs:
+    kdf_medallion_orders:
+      name: "KDF ${var.environment} - Medallion Orders"
+
+      tasks:
+        # Bronze Layer - Raw ingestion
+        - task_key: bronze_orders
+          description: "BRONZE: Ingest raw orders from PostgreSQL"
+
+          notebook_task:
+            notebook_path: /kdf/notebooks/run_kdf_pipeline
+            base_parameters:
+              config_path: "${var.config_path}/medallion_orders.yaml"
+              metadata_path: "${var.metadata_path}"
+              config_type: "medallion"
+              pipeline_name: "bronze_orders"
+            source: WORKSPACE
+
+          job_cluster_key: kdf_batch_cluster
+
+          timeout_seconds: 3600
+          max_retries: 2
+
+          libraries:
+            - whl: ${workspace.file_path}/artifacts/kdf_wheel/*.whl
+
+        # Silver Layer - Clean and validate
+        - task_key: silver_orders
+          description: "SILVER: Clean and validate orders"
+
+          depends_on:
+            - task_key: bronze_orders
+
+          notebook_task:
+            notebook_path: /kdf/notebooks/run_kdf_pipeline
+            base_parameters:
+              config_path: "${var.config_path}/medallion_orders.yaml"
+              metadata_path: "${var.metadata_path}"
+              config_type: "medallion"
+              pipeline_name: "silver_orders"
+            source: WORKSPACE
+
+          job_cluster_key: kdf_batch_cluster
+
+          timeout_seconds: 3600
+          max_retries: 2
+
+          libraries:
+            - whl: ${workspace.file_path}/artifacts/kdf_wheel/*.whl
+
+        # Gold Layer - Business metrics
+        - task_key: gold_daily_revenue
+          description: "GOLD: Calculate daily revenue metrics"
+
+          depends_on:
+            - task_key: silver_orders
+
+          notebook_task:
+            notebook_path: /kdf/notebooks/run_kdf_pipeline
+            base_parameters:
+              config_path: "${var.config_path}/medallion_orders.yaml"
+              metadata_path: "${var.metadata_path}"
+              config_type: "medallion"
+              pipeline_name: "gold_daily_revenue"
+            source: WORKSPACE
+
+          job_cluster_key: kdf_batch_cluster
+
+          timeout_seconds: 3600
+          max_retries: 2
+
+          libraries:
+            - whl: ${workspace.file_path}/artifacts/kdf_wheel/*.whl
+
+      # Schedule
+      schedule:
+        quartz_cron_expression: "0 0 2 * * ?"
+        timezone_id: "UTC"
+        pause_status: UNPAUSED
+
+      # Notifications
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+        on_success: []
+
+      # Job settings
+      max_concurrent_runs: 1
+      timeout_seconds: 10800
+
+      tags:
+        framework: kdf
+        environment: ${var.environment}
+        pipeline_type: medallion
+        architecture: bronze_silver_gold

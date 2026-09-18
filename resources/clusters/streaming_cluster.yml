@@ -1,0 +1,24 @@
+# Streaming/real-time processing cluster configuration
+# Used for Kafka ingestion and streaming pipelines
+
+resources:
+  job_clusters:
+    kdf_streaming_cluster:
+      new_cluster:
+        spark_version: "13.3.x-scala2.12"
+        node_type_id: "i3.xlarge"
+        autoscale:
+          min_workers: 2
+          max_workers: 8
+        spark_conf:
+          spark.databricks.delta.preview.enabled: "true"
+          spark.streaming.backpressure.enabled: "true"
+          spark.streaming.kafka.maxRatePerPartition: "1000"
+          spark.sql.streaming.stateStore.maintenanceInterval: "300s"
+          spark.sql.streaming.metricsEnabled: "true"
+        custom_tags:
+          framework: kdf
+          cluster_type: streaming
+          environment: ${var.environment}
+        data_security_mode: USER_ISOLATION
+        runtime_engine: PHOTON
