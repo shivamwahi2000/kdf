@@ -1,0 +1,38 @@
+# Example: S3 CSV Ingestion
+#
+# This pipeline demonstrates:
+# - Reading CSV files from S3
+# - Schema inference
+# - Basic quality checks
+# - Writing to Delta Lake
+
+name: customer_events
+
+source:
+  type: s3
+  path: s3://data-lake/events/
+  format: csv
+
+  # CSV options
+  header: true
+  infer_schema: true
+
+ingestion:
+  skill: full_load
+
+skills:
+  - deduplicate:
+      keys: [event_id]
+
+quality:
+  - not_null:
+      columns:
+        - event_id
+        - user_id
+        - event_timestamp
+
+target:
+  type: delta
+  path: /data/events
+  mode: append
+  partition_by: [event_date]

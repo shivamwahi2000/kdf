@@ -1,0 +1,131 @@
+# Example: Medallion Architecture for Orders
+#
+# This demonstrates a complete medallion workflow:
+# Bronze → Silver → Gold
+#
+# Bronze: Raw ingestion from PostgreSQL
+# Silver: Cleaned, validated, deduplicated
+# Gold: Business metrics and aggregations
+
+name: orders_medallion
+description: Complete medallion architecture for orders data
+
+pipelines:
+  # BRONZE LAYER - Raw ingestion
+  - name: bronze_orders
+    medallion:
+      layer: bronze
+      quality_level: raw
+      description: Raw orders from production database
+
+    execution_mode: batch
+
+    source:
+      type: postgres
+      connection: production_postgres
+      database: sales
+      schema: public
+      table: orders
+
+    ingestion:
+      skill: incremental
+      column: updated_at
+
+    target:
+      type: delta
+      path: /medallion/bronze/orders
+      mode: append
+
+  # SILVER LAYER - Cleaned and validated
+  - name: silver_orders
+    depends_on: [bronze_orders]
+
+    medallion:
+      layer: silver
+      upstream_layers: [bronze]
+      quality_level: validated
+      description: Cleaned and validated orders
+
+    execution_mode: batch
+
+    source:
+      type: delta
+      path: /medallion/bronze/orders
+
+    ingestion:
+      skill: full_load
+
+    skills:
+      # Remove duplicates
+      - deduplicate:
+          keys: [order_id]
+          order_by: updated_at
+
+      # Handle schema changes
+      - schema_evolution:
+          mode: compatible
+
+    quality:
+      # Ensure data quality
+      - not_null:
+          columns:
+            - order_id
+            - customer_id
+            - order_date
+            - updated_at
+
+      - unique:
+          columns:
+            - order_id
+
+      - freshness:
+          column: updated_at
+          threshold: 24h
+
+    target:
+      type: delta
+      path: /medallion/silver/orders
+      mode: overwrite
+      partition_by: [order_date]
+
+  # GOLD LAYER - Business metrics
+  - name: gold_daily_revenue
+    depends_on: [silver_orders]
+
+    medallion:
+      layer: gold
+      upstream_layers: [silver]
+      quality_level: enriched
+      description: Daily revenue metrics by customer
+
+    execution_mode: batch
+
+    source:
+      type: delta
+      path: /medallion/silver/orders
+
+    ingestion:
+      skill: full_load
+
+    skills:
+      # Aggregate to daily metrics
+      - aggregate:
+          group_by: [order_date, customer_id]
+          metrics:
+            - name: total_revenue
+              agg: sum
+              column: order_amount
+            - name: order_count
+              agg: count
+            - name: avg_order_value
+              agg: avg
+              column: order_amount
+            - name: max_order_value
+              agg: max
+              column: order_amount
+
+    target:
+      type: delta
+      path: /medallion/gold/daily_revenue
+      mode: overwrite
+      partition_by: [order_date]

@@ -1,0 +1,159 @@
+{
+  "name": "KDF Hybrid Workflow - Batch + Streaming",
+  "tasks": [
+    {
+      "task_key": "bronze_batch",
+      "description": "Bronze batch - Historical data from PostgreSQL",
+      "notebook_task": {
+        "notebook_path": "/Workspace/kdf/notebooks/run_kdf_pipeline",
+        "base_parameters": {
+          "config_path": "dbfs:/kdf/configs/hybrid_workflow.yaml",
+          "metadata_path": "/kdf/metadata",
+          "config_type": "medallion",
+          "pipeline_name": "bronze_orders_batch"
+        },
+        "source": "WORKSPACE"
+      },
+      "job_cluster_key": "batch_cluster",
+      "timeout_seconds": 3600,
+      "max_retries": 2
+    },
+    {
+      "task_key": "bronze_streaming",
+      "description": "Bronze streaming - Real-time data from Kafka",
+      "notebook_task": {
+        "notebook_path": "/Workspace/kdf/notebooks/run_kdf_pipeline",
+        "base_parameters": {
+          "config_path": "dbfs:/kdf/configs/hybrid_workflow.yaml",
+          "metadata_path": "/kdf/metadata",
+          "config_type": "medallion",
+          "pipeline_name": "bronze_clickstream_streaming"
+        },
+        "source": "WORKSPACE"
+      },
+      "job_cluster_key": "streaming_cluster",
+      "timeout_seconds": 0,
+      "max_retries": 0
+    },
+    {
+      "task_key": "silver_batch",
+      "description": "Silver batch - Clean batch data",
+      "depends_on": [
+        {
+          "task_key": "bronze_batch"
+        }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/kdf/notebooks/run_kdf_pipeline",
+        "base_parameters": {
+          "config_path": "dbfs:/kdf/configs/hybrid_workflow.yaml",
+          "metadata_path": "/kdf/metadata",
+          "config_type": "medallion",
+          "pipeline_name": "silver_orders"
+        },
+        "source": "WORKSPACE"
+      },
+      "job_cluster_key": "batch_cluster",
+      "timeout_seconds": 3600,
+      "max_retries": 2
+    },
+    {
+      "task_key": "silver_streaming",
+      "description": "Silver streaming - Process streaming data",
+      "depends_on": [
+        {
+          "task_key": "bronze_streaming"
+        }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/kdf/notebooks/run_kdf_pipeline",
+        "base_parameters": {
+          "config_path": "dbfs:/kdf/configs/hybrid_workflow.yaml",
+          "metadata_path": "/kdf/metadata",
+          "config_type": "medallion",
+          "pipeline_name": "silver_clickstream"
+        },
+        "source": "WORKSPACE"
+      },
+      "job_cluster_key": "streaming_cluster",
+      "timeout_seconds": 0,
+      "max_retries": 0
+    },
+    {
+      "task_key": "gold_analytics",
+      "description": "Gold layer - Combined analytics",
+      "depends_on": [
+        {
+          "task_key": "silver_batch"
+        },
+        {
+          "task_key": "silver_streaming"
+        }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/kdf/notebooks/run_kdf_pipeline",
+        "base_parameters": {
+          "config_path": "dbfs:/kdf/configs/hybrid_workflow.yaml",
+          "metadata_path": "/kdf/metadata",
+          "config_type": "medallion",
+          "pipeline_name": "gold_user_activity"
+        },
+        "source": "WORKSPACE"
+      },
+      "job_cluster_key": "batch_cluster",
+      "timeout_seconds": 3600,
+      "max_retries": 2
+    }
+  ],
+  "job_clusters": [
+    {
+      "job_cluster_key": "batch_cluster",
+      "new_cluster": {
+        "spark_version": "13.3.x-scala2.12",
+        "node_type_id": "i3.xlarge",
+        "num_workers": 4,
+        "spark_conf": {
+          "spark.databricks.delta.preview.enabled": "true",
+          "spark.databricks.delta.optimizeWrite.enabled": "true",
+          "spark.sql.adaptive.enabled": "true"
+        },
+        "custom_tags": {
+          "framework": "kdf",
+          "cluster_type": "batch"
+        }
+      }
+    },
+    {
+      "job_cluster_key": "streaming_cluster",
+      "new_cluster": {
+        "spark_version": "13.3.x-scala2.12",
+        "node_type_id": "i3.xlarge",
+        "autoscale": {
+          "min_workers": 2,
+          "max_workers": 8
+        },
+        "spark_conf": {
+          "spark.databricks.delta.preview.enabled": "true",
+          "spark.streaming.backpressure.enabled": "true",
+          "spark.sql.streaming.stateStore.maintenanceInterval": "300s"
+        },
+        "custom_tags": {
+          "framework": "kdf",
+          "cluster_type": "streaming"
+        }
+      }
+    }
+  ],
+  "schedule": {
+    "quartz_cron_expression": "0 0 * * * ?",
+    "timezone_id": "UTC",
+    "pause_status": "UNPAUSED"
+  },
+  "format": "MULTI_TASK",
+  "max_concurrent_runs": 1,
+  "timeout_seconds": 14400,
+  "email_notifications": {
+    "on_failure": ["data-engineering@company.com"],
+    "on_streaming_backlog_exceeded": ["data-engineering@company.com"]
+  }
+}

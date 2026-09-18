@@ -1,0 +1,54 @@
+# Example: S3 Parquet Full Load
+#
+# This pipeline demonstrates:
+# - Reading Parquet files from S3
+# - Full load (complete refresh)
+# - Deduplication
+# - Data quality validation
+# - Reconciliation between source and target
+
+name: transactions_load
+
+source:
+  type: s3
+  path: s3://company-data/transactions/
+  format: parquet
+
+  # Optional: Configure S3 reading behavior
+  # recursive: true
+  # path_glob_filter: "*.parquet"
+
+ingestion:
+  skill: full_load
+
+skills:
+  # Remove any duplicates in source data
+  - deduplicate:
+      keys: [transaction_id]
+      order_by: updated_at
+
+  # Check for schema changes
+  - schema_evolution:
+      mode: warning
+
+  # Reconcile counts between source and target
+  - reconcile:
+      keys: [transaction_id]
+
+quality:
+  # Validate required fields
+  - not_null:
+      columns:
+        - transaction_id
+        - amount
+        - transaction_date
+
+  # Ensure unique transactions
+  - unique:
+      columns:
+        - transaction_id
+
+target:
+  type: delta
+  path: /data/transactions
+  mode: overwrite

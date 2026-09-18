@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kdf"
+version = "0.1.0"
+description = "KDF — Krianno Data Framework: Foundation for Agentic Data Engineering"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Krianno TechLabs"}
+]
+keywords = ["data-engineering", "databricks", "spark", "ai-agents", "data-pipelines"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "pyspark>=3.4.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "click>=8.0.0",
+    "boto3>=1.26.0",
+    "psycopg2-binary>=2.9.0",
+    "python-dotenv>=1.0.0",
+    "tabulate>=0.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+kdf = "kdf.cli.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/krianno/kdf"
+Documentation = "https://github.com/krianno/kdf/docs"
+Repository = "https://github.com/krianno/kdf"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["kdf*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --cov=kdf --cov-report=term-missing"
