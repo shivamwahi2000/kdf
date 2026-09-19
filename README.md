@@ -44,7 +44,31 @@ Instead of reinventing these patterns, KDF provides battle-tested primitives tha
 pip install kdf
 ```
 
-### Initialize a Project
+### Two Ways to Use KDF
+
+#### Option 1: Create a Complete Data Engineering Project
+
+**Best for**: Starting a new data engineering project from scratch
+
+```bash
+# Create a production-ready project with Medallion architecture
+kdf init project my-data-project
+cd my-data-project
+pip install -r requirements.txt
+```
+
+This creates a **complete project** with:
+- ✅ Bronze → Silver → Gold pipeline examples
+- ✅ Databricks Asset Bundle configuration
+- ✅ CI/CD workflows (GitHub Actions)
+- ✅ Environment management (dev/staging/prod)
+- ✅ Project documentation
+
+**See**: [docs/PROJECT_QUICKSTART.md](docs/PROJECT_QUICKSTART.md) for complete guide
+
+#### Option 2: Add KDF to Existing Project
+
+**Best for**: Adding KDF to an existing codebase
 
 ```bash
 kdf init

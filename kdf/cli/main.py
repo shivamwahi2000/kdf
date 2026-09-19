@@ -15,6 +15,7 @@ from kdf.core.registry import connector_registry, skill_registry
 from kdf.metadata.runs import RunMetadataStore
 from kdf.cli.medallion import run_medallion, validate_medallion
 from kdf.cli.databricks import databricks
+from kdf.cli.init import init_group
 
 
 @click.group()
@@ -27,81 +28,6 @@ def cli():
     pass
 
 
-@cli.command()
-@click.option("--path", default=".", help="Project directory")
-def init(path: str):
-    """Initialize a new KDF project."""
-    project_path = Path(path)
-    project_path.mkdir(exist_ok=True)
-
-    # Create example pipeline
-    example_pipeline = """# Example KDF Pipeline Configuration
-
-name: example_pipeline
-
-source:
-  type: postgres
-  connection: my_postgres
-  database: sales
-  schema: public
-  table: orders
-
-ingestion:
-  skill: incremental
-  column: updated_at
-
-skills:
-  - deduplicate:
-      keys: [order_id]
-      order_by: updated_at
-
-quality:
-  - not_null:
-      columns:
-        - order_id
-        - customer_id
-
-target:
-  type: delta
-  path: /data/orders
-  mode: append
-"""
-
-    pipeline_file = project_path / "pipeline.yaml"
-    if not pipeline_file.exists():
-        pipeline_file.write_text(example_pipeline)
-        click.echo(f"✓ Created example pipeline: {pipeline_file}")
-
-    # Create .env template
-    env_template = """# KDF Environment Configuration
-
-# PostgreSQL
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DATABASE=mydb
-POSTGRES_USER=user
-POSTGRES_PASSWORD=password
-
-# AWS / S3
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-AWS_REGION=us-east-1
-
-# Metadata
-KDF_METADATA_PATH=./kdf_metadata
-"""
-
-    env_file = project_path / ".env.template"
-    if not env_file.exists():
-        env_file.write_text(env_template)
-        click.echo(f"✓ Created environment template: {env_file}")
-
-    click.echo("\n✓ KDF project initialized!")
-    click.echo("\nNext steps:")
-    click.echo("  1. Copy .env.template to .env and configure your credentials")
-    click.echo("  2. Edit pipeline.yaml to match your use case")
-    click.echo("  3. Run: kdf validate pipeline.yaml")
-    click.echo("  4. Run: kdf run pipeline.yaml")
 
 
 @cli.command()
@@ -295,6 +221,9 @@ def connector_list():
     for conn_name in sorted(connectors):
         click.echo(f"  - {conn_name}")
 
+
+# Add init commands
+cli.add_command(init_group)
 
 # Add medallion commands
 cli.add_command(run_medallion, name="run-medallion")
